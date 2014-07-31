@@ -289,6 +289,8 @@ void usage(void) {
                  "are verified by mafComparator is it runs and discrepncies will cause errors. If this "
                  "option is invoked it can result in a speedup of about 15%. Example: --legitSequences "
                  "apple.chr1:100,apple.chr2:102,pineapple.chr1:2010 ...");
+    usageMessage('\0', "dumpMismatches", "An optional BED file to store the locations of "
+                 "mismatching pairs in.");
 
     usageMessage('\0', "logLevel", "Set the log level. [off, critical, info, debug] "
                  "in ascending order.");
@@ -309,6 +311,7 @@ int parseOptions(int argc, char **argv, Options* options) {
         {"maf2", required_argument, 0, 0},
         {"outputFile", required_argument, 0, 'd'},
         {"out", required_argument, 0, 0},
+        {"dumpMismatches", required_argument, 0, 0},
         {"samples", required_argument, 0, 0},
         {"sampleNumber", required_argument, 0, 0},
         {"wigglePairs", required_argument, 0, 0},
@@ -340,6 +343,10 @@ int parseOptions(int argc, char **argv, Options* options) {
             }
             if (strcmp("out", longOptions[longIndex].name) == 0) {
                 options->outputFile = stString_copy(optarg);
+                break;
+            }
+            if (strcmp("dumpMismatches", longOptions[longIndex].name) == 0) {
+                options->dumpMismatches = stString_copy(optarg);
                 break;
             }
             if (strcmp("legitSequences", longOptions[longIndex].name) == 0) {
@@ -480,6 +487,7 @@ int parseOptions(int argc, char **argv, Options* options) {
 int main(int argc, char **argv) {
     Options *options = options_construct();
     FILE *fileHandle = NULL;
+    FILE *mismatchHandle = NULL;
     stHash *intervalsHash = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, free,
                                               (void(*)(void *)) stSortedSet_destruct);
     // (0) Parse the inputs
@@ -501,6 +509,9 @@ int main(int argc, char **argv) {
     st_logInfo("MAF file 1 name : %s\n", options->mafFile1);
     st_logInfo("MAF file 2 name : %s\n", options->mafFile2);
     st_logInfo("Output stats file : %s\n", options->outputFile);
+    if(options->dumpMismatches != NULL) {
+        st_logInfo("Output mismatches file : %s\n", options->dumpMismatches);
+    }
     st_logInfo("Bed files parsed : %" PRIi64 "\n", stHash_size(intervalsHash));
     st_logInfo("Number of samples %" PRIu64 "\n", options->numberOfSamples);
     // note that random seed has already been logged.
@@ -513,6 +524,16 @@ int main(int argc, char **argv) {
                                                free, (void(*)(void *))wiggleContainer_destruct);
     buildWigglePairHash(sequenceLengthHash, wigglePairPatternList, wigglePairHash, options->wiggleBinLength,
                         options->wiggleRegionStart, options->wiggleRegionStop);
+    
+    if(options->dumpMismatches != NULL) {
+        // We want to save all pairs that weren't recovered in a BED file while
+        // we do the comparisons. So open one.
+        mismatchHandle = de_fopen(options->dumpMismatches, "w");
+        
+        // If we don't do this, mismatchHandle will just stay NULL and
+        // compareMAFs_AB will ignore it.
+    }
+    
     // Do comparisons.
     if (g_isVerboseFailures) {
         fprintf(stderr, "# Sampling from %s, comparing to %s\n", options->mafFile1, options->mafFile2);
@@ -520,14 +541,21 @@ int main(int argc, char **argv) {
     }
     stSortedSet *results_12 = compareMAFs_AB(options->mafFile1, options->mafFile2, &(options->numPairs1),
                                              seqNamesSet, intervalsHash, wigglePairHash, true, options,
-                                             sequenceLengthHash);
+                                             sequenceLengthHash, mismatchHandle);
     if (g_isVerboseFailures) {
         fprintf(stderr, "# Sampling from %s, comparing to %s\n", options->mafFile2, options->mafFile1);
         fprintf(stderr, "# seq1\tabsPos1\torigPos1\tseq2\tabsPos2\torigPos2\n");
     }
     stSortedSet *results_21 = compareMAFs_AB(options->mafFile2, options->mafFile1, &(options->numPairs2),
                                              seqNamesSet, intervalsHash, wigglePairHash, false, options,
-                                             sequenceLengthHash);
+                                             sequenceLengthHash, mismatchHandle);
+    
+    if(mismatchHandle != NULL) {
+        // We need to close it
+        fclose(mismatchHandle);
+    }
+    
+    
     fileHandle = de_fopen(options->outputFile, "w");
     // Report results.
     writeXMLHeader(fileHandle);

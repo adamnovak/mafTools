@@ -47,6 +47,7 @@ typedef struct _options {
     char *mafFile1;
     char *mafFile2;
     char *outputFile;
+    char *dumpMismatches;
     char *bedFiles;
     char *wigglePairs;
     uint64_t wiggleRegionStart;
@@ -109,7 +110,7 @@ void options_destruct(Options* o);
 void populateNames(const char *mAFFile, stSet *set, stHash *seqLengthHash);
 stSortedSet* compareMAFs_AB(const char *mAFFileA, const char *mAFFileB, uint64_t *numberOfPairsInFile,
                             stSet *legitimateSequences, stHash *intervalsHash, stHash *wigHash, bool isAtoB,
-                            Options *options, stHash *sequenceLengthHash);
+                            Options *options, stHash *sequenceLengthHash, FILE *mismatchHandle);
 void findentprintf(FILE *fp, unsigned indent, char const *fmt, ...);
 void reportResults(stSortedSet *results_AB, const char *mAFFileA, const char *mAFFileB,
                    FILE *fileHandle, uint64_t near, stSet *legitimateSequences,

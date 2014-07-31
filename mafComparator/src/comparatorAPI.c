@@ -74,6 +74,7 @@ Options* options_construct(void) {
     o->mafFile1 = NULL;
     o->mafFile2 = NULL;
     o->outputFile = NULL;
+    o->dumpMismatches = NULL;
     o->bedFiles = NULL;
     o->wigglePairs = NULL;
     o->wiggleRegionStart = 0;
@@ -142,6 +143,7 @@ void options_destruct(Options *o) {
     free(o->mafFile1);
     free(o->mafFile2);
     free(o->outputFile);
+    free(o->dumpMismatches);
     free(o->bedFiles);
     free(o->wigglePairs);
     free(o->legitSequences);
@@ -1262,7 +1264,8 @@ void enumerateHomologyResults(stSortedSet *sampledPairs, stSortedSet *resultPair
 }
 stSortedSet *compareMAFs_AB(const char *mafFileA, const char *mafFileB, uint64_t *numberOfPairs,
                             stSet *legitSequences, stHash *intervalsHash, stHash *wigglePairHash,
-                            bool isAtoB, Options *options, stHash *sequenceLengthHash) {
+                            bool isAtoB, Options *options, stHash *sequenceLengthHash, 
+                            FILE* mismatchHandle) {
     // count the number of pairs in mafFileA
     if (*numberOfPairs == 0) {
         // can be manually set via the command line
@@ -1285,6 +1288,36 @@ stSortedSet *compareMAFs_AB(const char *mafFileA, const char *mafFileB, uint64_t
     // perform homology tests on mafFileB using sampled pairs from mafFileA
     stSet *positivePairs = stSet_construct(); // comparison by pointer
     performHomologyTests(mafFileB, pairs, positivePairs, legitSequences, intervalsHash, options->near);
+    
+    if(mismatchHandle != NULL) {
+        // Write every non-matching pair as a BED record.
+        
+        // Get an iterator to go through the set of queried pairs
+        stSortedSetIterator *iterator = stSortedSet_getIterator(pairs);
+        
+        APair* pair;
+        while((pair = (APair*) stSortedSet_getNext(iterator)) != NULL) {
+            // For each pair, look for it in the positive pairs set
+            
+            if(stSet_search(positivePairs, (void*) pair) == NULL) {
+                // This pair was negative.
+                
+                // Make an entry for it on the first sequence
+                fprintf(mismatchHandle, "%s\t%" PRIu64 "\t%" PRIu64 "\t%s\n", 
+                        pair->seq1, pair->pos1, pair->pos1 + 1, mafFileA);
+                        
+                // And on the second sequence
+                fprintf(mismatchHandle, "%s\t%" PRIu64 "\t%" PRIu64 "\t%s\n", 
+                        pair->seq2, pair->pos2, pair->pos2 + 1, mafFileA);
+                        
+                // Both entries are named after mafFileA because that's where
+                // they appeared as actually aligned.
+            } 
+        }
+        
+        stSortedSet_destructIterator(iterator);
+    }
+    
     stSortedSet *resultPairs = stSortedSet_construct3((int(*)(const void *, const void *)) aPair_cmpFunction_seqsOnly, (void(*)(void *)) aPair_destruct);
     enumerateHomologyResults(pairs, resultPairs, intervalsHash, positivePairs, wigglePairHash, isAtoB,
                              options->wiggleBinLength);
